@@ -1,0 +1,85 @@
+total <- 0; // Sum of % change from all samples
+n <- 0;     // Counter for number of samples read
+last <- 1;  // Previous reading of magnitude
+ 
+function readSensor() {
+    // Time interval
+    local interval = 0.02;
+    
+    // Get source voltage, should be 3.3V
+    local vRef = hardware.voltage();
+       
+    // Read in ADC values from accelerometer
+    local adcRx = hardware.pin5.read();
+    local adcRy = hardware.pin2.read();
+    local adcRz = hardware.pin1.read();  
+    // server.log(format("Raw ADC values: %f, %f, %f", adcRx, adcRy, adcRz));
+       
+    // Convert 16bit ADC accelerometer values (0-65535) into voltage
+    local voltsRx = (adcRx * vRef) / 65535.0;
+    local voltsRy = (adcRy * vRef) / 65535.0;
+    local voltsRz = (adcRz * vRef) / 65535.0;
+    // server.log(format("Voltages: %f, %f %f", voltsRx, voltsRy, voltsRz));
+      
+    // Subtract 0g (1.5V at 3V, 1.65V at 3.3V)
+    local deltaVoltsRx = voltsRx - (vRef / 2);
+    local deltaVoltsRy = voltsRy - (vRef / 2);
+    local deltaVoltsRz = voltsRz - (vRef / 2);  
+    // server.log(format("Adjusted voltages %f, %f, %f", deltaVoltsRx, deltaVoltsRy, deltaVoltsRz));
+     
+    // Convert from voltage to g, using sensitivity of 300mV
+    local rX = deltaVoltsRx / 0.3;
+    local rY = deltaVoltsRy / 0.3;
+    local rZ = deltaVoltsRz / 0.3;
+    // server.log(format("Gs: %f, %f, %f", rX, rY, rZ));
+    
+
+    // Once the table is constructed, send it out to the agent with "impValues"
+    // as the identifier.
+    
+    
+    // Compute magnitude of force
+    local magnitude = math.sqrt(math.pow(rX,2) + math.pow(rY, 2) + math.pow(rZ, 2));
+    
+    // Compute % change since last reading
+    local change = math.fabs((magnitude - last)/last) * 100.0; 
+    local xyzValues = 
+    {
+        x = rX,
+        y = rY,
+        z = rZ,
+        change = change,// We'll also send the operating voltage.
+    }
+    agent.send("xyzValues", xyzValues);
+    // Store magnitude in last for next time
+    last = magnitude;
+    
+    // Log magnitude and percent change
+    server.log(format("magnitude: %f, change amount: %f", magnitude, change));
+    
+    // Increment total with % change, increment N
+    total = total + change;
+    n = n + 1;
+    
+    // Log data to server once ever 250 samples (5 seconds)
+    if (n >= 2) {
+        agent.send("data", total);
+        n = 0;
+        total = 0;
+    }
+    
+    // Sleep until time to read sensor again
+    imp.wakeup(interval, readSensor);
+}
+ 
+// X input
+hardware.pin1.configure(ANALOG_IN);
+ 
+// Y input
+hardware.pin2.configure(ANALOG_IN);
+ 
+// Z input
+hardware.pin5.configure(ANALOG_IN);
+ 
+// Start reading the sensor
+readSensor();
